@@ -7,9 +7,3 @@ Use Upload age to enable or disable the filter. Changes apply as you type, and p
 The filter uses YouTube's displayed upload ages, which are rounded. Missing dates and ages overlapping the cutoff are hidden unless Include uncertain dates is enabled. English and Russian age labels are supported. View counts are lifetime totals, and the loaded list may not cover the channel's entire history.
 
 The script makes no direct network requests and uses no external services. YouTube's own code handles pagination. Tampermonkey checks this GitHub repository for script updates.
-
-Build the installable file with the globally installed Terser:
-
-```sh
-terser youtube-video-age-filter.src.js --compress passes=10 --mangle --comments all --output youtube-video-age-filter.user.js
-```
