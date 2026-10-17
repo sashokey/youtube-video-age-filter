@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         YouTube Video Age Filter
 // @namespace    local.youtube-video-age-filter
-// @version      1.1.3
-// @description  Filter channel videos by upload age while keeping YouTube's native order and pagination.
+// @version      1.2.0
+// @description  Filter Popular channel videos by upload age using YouTube's native pagination.
 // @match        https://www.youtube.com/*
 // @run-at       document-idle
 // @sandbox      DOM
@@ -21,14 +21,15 @@
   const ITEM = 'ytd-rich-item-renderer, ytd-grid-video-renderer';
   const CONTINUATION = 'ytd-continuation-item-renderer';
   const CHIP_BAR = 'chip-bar-view-model, yt-chip-cloud-renderer';
+  const CHIP = '[role="tab"], yt-chip-cloud-chip-renderer';
   const UNITS = ['days', 'weeks', 'months', 'years'];
-  const defaults = { enabled: true, amount: 12, unit: 'months', uncertain: false };
-  let settings = { ...defaults };
-  try { settings = { ...defaults, ...GM_getValue(KEY, {}) }; } catch {}
+  let settings = { amount: 12, unit: 'months' };
+  try {
+    const saved = GM_getValue(KEY, {});
+    settings = { amount: saved?.amount ?? 12, unit: saved?.unit ?? 'months' };
+  } catch {}
   if (!Number.isInteger(settings.amount) || settings.amount < 1 || settings.amount > 10000) settings.amount = 12;
   if (!UNITS.includes(settings.unit)) settings.unit = 'months';
-  settings.enabled = settings.enabled === true;
-  settings.uncertain = settings.uncertain === true;
 
   function subtractMonths(time, amount) {
     const date = new Date(time);
@@ -99,15 +100,8 @@
     #${PREFIX}-panel::-webkit-scrollbar { display: none; }
     #${PREFIX}-panel .${PREFIX}-controls { display: flex; align-items: center; flex: 0 0 auto; gap: 8px; margin-inline-start: auto; }
     #${PREFIX}-panel button { flex: 0 0 auto; }
-    #${PREFIX}-panel button[role="switch"] { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; --transition-duration: var(--paper-toggle-button-transition-duration, .08s); }
-    #${PREFIX}-panel button[role="switch"] .toggle-container { flex: 0 0 auto; }
-    #${PREFIX}-panel button[role="switch"] .toggle-bar { inset: 0; }
-    #${PREFIX}-panel button[role="switch"][aria-checked="true"] .toggle-bar { background-color: var(--paper-toggle-button-checked-bar-color, var(--primary-color)); opacity: var(--paper-toggle-button-checked-bar-opacity, .5); }
-    #${PREFIX}-panel button[role="switch"][aria-checked="true"] .toggle-button { transform: translateX(16px); background-color: var(--paper-toggle-button-checked-button-color, var(--primary-color)); }
-    #${PREFIX}-panel button[role="switch"][aria-checked="true"]:dir(rtl) .toggle-button { transform: translateX(-16px); }
-    #${PREFIX}-panel button[role="switch"]:dir(rtl) .toggle-button { right: 0; left: auto; }
     #${PREFIX}-panel button:disabled { cursor: default; }
-    #${PREFIX}-panel button:disabled > span, #${PREFIX}-panel input:disabled, #${PREFIX}-panel select:disabled { opacity: .5; }
+    #${PREFIX}-panel button:disabled > span { opacity: .5; }
     #${PREFIX}-panel button:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; border-radius: 8px; }
     #${PREFIX}-panel button:not(:disabled):hover .ytSpecTouchFeedbackShapeFill { opacity: .1; }
     #${PREFIX}-panel input, #${PREFIX}-panel select { font: inherit; outline-offset: -2px; }
@@ -137,13 +131,10 @@
     return button;
   }
 
-  function switchControl(text, parent, attrs = {}) {
-    const button = element('button', '', parent, { type: 'button', role: 'switch', ...attrs });
-    element('span', text, button);
-    const track = element('span', '', button, { class: 'toggle-container style-scope tp-yt-paper-toggle-button', 'aria-hidden': 'true' });
-    element('span', '', track, { class: 'toggle-bar style-scope tp-yt-paper-toggle-button' });
-    element('span', '', track, { class: 'toggle-button style-scope tp-yt-paper-toggle-button' });
-    return button;
+  function isPopular(bar) {
+    const selected = bar?.querySelector('[role="tab"][aria-selected="true"], yt-chip-cloud-chip-renderer[selected]:not([selected="false"])');
+    return !!selected && [selected.textContent, selected.getAttribute('aria-label')]
+      .some(value => /^(popular|популярные)$/iu.test((value || '').trim()));
   }
 
   function panelContainer(bar) {
@@ -197,40 +188,25 @@
   function mount(grid, bar) {
     const panel = element('div', '', null, { id: `${PREFIX}-panel`, role: 'group', 'aria-label': 'Video upload age filter' });
     const controls = element('div', '', panel, { class: `${PREFIX}-controls` });
-    const enabled = switchControl('Upload age', controls, { 'aria-checked': String(settings.enabled), title: 'Enable or disable the upload age filter' });
     const amount = element('input', '', controls, { type: 'number', required: '', min: '1', max: '10000', step: '1', class: 'ytChipShapeChip ytChipShapeInactive', 'aria-label': 'Maximum video age', title: 'Within the last' });
     amount.value = String(settings.amount);
     const unit = element('select', '', controls, { class: 'ytChipShapeChip ytChipShapeInactive', 'aria-label': 'Age unit' });
     for (const value of UNITS) element('option', value, unit, { value });
     unit.value = settings.unit;
-    const uncertain = switchControl('Uncertain dates', controls, { 'aria-label': 'Include uncertain dates', 'aria-checked': String(settings.uncertain), title: 'Include missing dates and rounded upload ages that overlap the cutoff' });
     const more = chipButton('Load more', controls, { 'aria-label': 'Load next page', title: 'Load one more page through normal YouTube scrolling', 'aria-describedby': `${PREFIX}-progress` });
     const find = chipButton('Find 20 more', controls, { title: 'Load until 20 more matching videos appear or 10 pages have loaded', 'aria-describedby': `${PREFIX}-progress` });
     const cancel = chipButton('Stop', controls, { title: 'Stop loading more videos' });
     const status = element('span', '', panel, { id: `${PREFIX}-status`, class: `${PREFIX}-sr-only`, role: 'status', 'aria-live': 'polite' });
     const progress = element('span', '', panel, { id: `${PREFIX}-progress`, class: `${PREFIX}-sr-only`, role: 'status', 'aria-live': 'polite' });
-    current = { grid, panel, amount, unit, uncertain, enabled, status, progress, more, find, cancel, running: false, message: '', stats: {}, restore: null, awaiting: null };
+    current = { grid, panel, status, progress, more, find, cancel, running: false, message: '', stats: {}, restore: null, awaiting: null };
     placePanel(current, bar);
     const change = () => {
       if (!amount.checkValidity()) { amount.reportValidity(); return; }
       stop();
-      settings = { ...settings, amount: Number(amount.value), unit: unit.value };
+      settings = { amount: Number(amount.value), unit: unit.value };
       save();
       refresh();
     };
-    enabled.addEventListener('click', () => {
-      stop();
-      settings.enabled = !settings.enabled;
-      if (!settings.enabled) amount.value = String(settings.amount);
-      save();
-      refresh();
-    });
-    uncertain.addEventListener('click', () => {
-      stop();
-      settings.uncertain = !settings.uncertain;
-      save();
-      refresh();
-    });
     for (const control of [amount, unit]) control.addEventListener('change', change);
     amount.addEventListener('input', () => { if (amount.checkValidity()) change(); });
     more.addEventListener('click', () => loadMore(1, Infinity));
@@ -243,15 +219,17 @@
   }
 
   function refresh() {
+    window.clearTimeout(scheduled);
     scheduled = 0;
     const grid = activeGrid();
     const bar = grid && chipBar(grid);
-    if (current && (grid !== current.grid || !bar)) unmount();
-    if (!grid || !bar) return;
+    const active = isPopular(bar);
+    if (current && (grid !== current.grid || !active)) unmount();
+    if (!active) return;
     if (!current) mount(grid, bar);
     else placePanel(current, bar);
     const state = current;
-    grid.classList.toggle(`${PREFIX}-active`, settings.enabled);
+    grid.classList.add(`${PREFIX}-active`);
     const list = cards(state);
     if (state.awaiting && list.length !== state.awaiting.count) {
       grid.classList.remove(`${PREFIX}-loading`);
@@ -265,30 +243,23 @@
     const stats = { loaded: list.length, shown: 0, old: 0, boundary: 0, unknown: 0 };
     for (const card of list) {
       const result = classify(readAge(card, now), cutoff);
-      const show = !settings.enabled || result === 'recent' || (settings.uncertain && result !== 'old');
+      const show = result === 'recent';
       card.classList.toggle(`${PREFIX}-hidden`, !show);
       if (show) stats.shown++;
       if (result !== 'recent') stats[result]++;
     }
     state.stats = stats;
     const continuation = grid.querySelector(CONTINUATION);
-    const selected = bar.querySelector('[role="tab"][aria-selected="true"], yt-chip-cloud-chip-renderer[selected]');
-    const order = selected?.textContent.trim() || 'YouTube order';
-    const label = settings.enabled
-      ? `${stats.shown} shown / ${stats.loaded} loaded · ${stats.old} too old · ${stats.boundary} at cutoff · ${stats.unknown} unknown · Order: ${order}`
-      : `Filter off · ${stats.loaded} loaded · Native scrolling restored`;
+    const label = `${stats.shown} shown / ${stats.loaded} loaded · ${stats.old} too old · ${stats.boundary} at cutoff · ${stats.unknown} unknown · Order: Popular`;
     if (state.status.textContent !== label) state.status.textContent = label;
     const message = state.message || (continuation ? 'More videos may match. Use Load more or Find 20 more.' : 'No further page is currently offered by YouTube.');
     if (state.progress.textContent !== message) state.progress.textContent = message;
-    state.more.disabled = state.find.disabled = !settings.enabled || state.running || !continuation;
+    state.more.disabled = state.find.disabled = state.running || !continuation;
     state.cancel.disabled = !state.running;
     state.cancel.hidden = !state.running;
     state.more.title = state.message || 'Load one more page through normal YouTube scrolling';
     state.find.title = state.message || 'Load until 20 more matching videos appear or 10 pages have loaded';
-    state.enabled.setAttribute('aria-checked', String(settings.enabled));
-    state.uncertain.setAttribute('aria-checked', String(settings.uncertain));
     state.panel.setAttribute('aria-busy', String(state.running));
-    state.amount.disabled = state.unit.disabled = state.uncertain.disabled = !settings.enabled;
   }
 
   function schedule() {
@@ -298,7 +269,8 @@
   const wait = ms => new Promise(resolve => window.setTimeout(resolve, ms));
 
   async function loadMore(maxPages, target) {
-    if (!current || current.running || !settings.enabled) return;
+    refresh();
+    if (!current || current.running || document.hidden) return;
     const state = current;
     const id = ++runId;
     const initialShown = state.stats.shown;
@@ -314,11 +286,13 @@
         state.restore = { x: window.scrollX, y: window.scrollY };
         state.grid.classList.add(`${PREFIX}-loading`);
         refresh();
+        if (id !== runId || current !== state) return;
         continuation.scrollIntoView({ block: 'end', behavior: 'instant' });
         const started = Date.now();
         let changed = false;
         while (Date.now() - started < 15000) {
           await wait(150);
+          refresh();
           if (id !== runId || current !== state || document.hidden) return;
           if (cards(state).length !== count || !state.grid.querySelector(CONTINUATION)) { changed = true; break; }
         }
@@ -329,7 +303,8 @@
         }
         state.awaiting = null;
         refresh();
-        if (!changed) { state.message = 'YouTube did not load another page. Try again, or turn the filter off to use native scrolling.'; break; }
+        if (id !== runId || current !== state) return;
+        if (!changed) { state.message = 'YouTube did not load another page. Try again, or select Latest or Oldest for native scrolling.'; break; }
         const added = state.stats.shown - initialShown;
         state.message = `Found ${Math.max(0, added)} more matching videos.`;
         if (added >= target) break;
@@ -349,13 +324,16 @@
   const observer = new MutationObserver(records => {
     if (records.some(record => !(record.target.nodeType === Node.ELEMENT_NODE ? record.target : record.target.parentElement)?.closest(`#${PREFIX}-panel`))) schedule();
   });
-  observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['aria-selected', 'selected', 'hidden'] });
   document.addEventListener('yt-navigate-start', () => { navigationPending = true; unmount(); });
   document.addEventListener('yt-navigate-finish', () => { navigationPending = false; schedule(); });
   document.addEventListener('yt-page-data-updated', schedule);
   window.addEventListener('popstate', schedule);
   document.addEventListener('click', event => {
-    if (current && current.bar.contains(event.target) && event.target.closest?.('[role="tab"], yt-chip-cloud-chip-renderer')) { stop(); schedule(); }
+    const chip = event.target.closest?.(CHIP);
+    if (!chip?.closest(CHIP_BAR)) return;
+    if (current?.bar.contains(chip)) unmount();
+    schedule();
   }, true);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && current?.running) { stop('Paused because this tab is in the background.'); refresh(); }
