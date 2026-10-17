@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Video Age Filter
 // @namespace    local.youtube-video-age-filter
-// @version      1.1.0
+// @version      1.1.1
 // @description  Filter channel videos by upload age while keeping YouTube's native order and pagination.
 // @match        https://www.youtube.com/*
 // @run-at       document-idle
@@ -98,9 +98,9 @@
     .${PREFIX}-active ytd-rich-grid-row { display: contents !important; }
     .${PREFIX}-active ytd-rich-grid-row > #contents { display: contents !important; }
     ${ITEM.split(', ').map(selector => `.${PREFIX}-active ${selector}`).join(', ')} { margin-left: calc(var(--ytd-rich-grid-item-margin, 16px) / 2) !important; margin-right: calc(var(--ytd-rich-grid-item-margin, 16px) / 2) !important; }
-    .${PREFIX}-toolbar { display: flex !important; align-items: center; flex-wrap: nowrap !important; gap: 8px; max-width: 100%; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+    .${PREFIX}-toolbar { display: flex !important; align-items: center; justify-content: flex-start !important; flex-wrap: nowrap !important; gap: 8px; max-width: 100%; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
     .${PREFIX}-toolbar > chip-bar-view-model, .${PREFIX}-toolbar > yt-chip-cloud-renderer { flex: 0 0 auto; width: auto !important; min-width: 0; padding-block: 8px !important; }
-    #${PREFIX}-panel { display: flex; align-items: center; flex: 0 0 auto; flex-wrap: nowrap; gap: 8px; min-height: 48px; color: var(--yt-spec-text-primary); font-family: Roboto, Arial, sans-serif; font-size: 14px; white-space: nowrap; }
+    #${PREFIX}-panel { display: flex; align-items: center; flex: 0 0 auto; flex-wrap: nowrap; gap: 8px; min-height: 48px; margin-inline-start: auto; color: var(--yt-spec-text-primary); font-family: Roboto, Arial, sans-serif; font-size: 14px; white-space: nowrap; }
     #${PREFIX}-panel button { flex: 0 0 auto; }
     #${PREFIX}-panel button:disabled { cursor: default; }
     #${PREFIX}-panel button:disabled > span, #${PREFIX}-panel input:disabled, #${PREFIX}-panel select:disabled { opacity: .5; }
@@ -277,7 +277,8 @@
     state.more.disabled = state.find.disabled = !settings.enabled || state.running || !continuation;
     state.cancel.disabled = !state.running;
     state.cancel.hidden = !state.running;
-    const summary = settings.enabled ? `${stats.shown} / ${stats.loaded}${state.message ? ` · ${state.running ? 'Loading...' : state.message}` : ''}` : 'Off';
+    state.count.hidden = !settings.enabled;
+    const summary = settings.enabled ? `${stats.shown} / ${stats.loaded}${state.message ? ` · ${state.running ? 'Loading...' : state.message}` : ''}` : '';
     if (state.count.textContent !== summary) state.count.textContent = summary;
     state.count.title = `${label}\n${message}`;
     state.count.setAttribute('aria-label', settings.enabled ? `${stats.shown} shown of ${stats.loaded} loaded` : 'Filter off');
