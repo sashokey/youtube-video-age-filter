@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         YouTube Video Age Filter
 // @namespace    local.youtube-video-age-filter
-// @version      1.2.0
+// @version      1.2.1
 // @description  Filter Popular channel videos by upload age using YouTube's native pagination.
 // @match        https://www.youtube.com/*
+// @match        https://m.youtube.com/*
 // @run-at       document-idle
 // @sandbox      DOM
 // @grant        GM_getValue
@@ -18,8 +19,8 @@
 
   const KEY = 'youtube-video-age-filter-v1';
   const PREFIX = 'yt-age-filter';
-  const ITEM = 'ytd-rich-item-renderer, ytd-grid-video-renderer';
-  const CONTINUATION = 'ytd-continuation-item-renderer';
+  const ITEM = 'ytd-rich-item-renderer, ytd-grid-video-renderer, ytm-rich-item-renderer';
+  const CONTINUATION = 'ytd-continuation-item-renderer, ytm-continuation-item-renderer';
   const CHIP_BAR = 'chip-bar-view-model, yt-chip-cloud-renderer';
   const CHIP = '[role="tab"], yt-chip-cloud-chip-renderer';
   const UNITS = ['days', 'weeks', 'months', 'years'];
@@ -72,7 +73,7 @@
   }
 
   function readAge(card, now) {
-    const nodes = card.querySelectorAll('.ytContentMetadataViewModelMetadataText, #metadata-line > span, time[datetime]');
+    const nodes = card.querySelectorAll('.ytContentMetadataViewModelMetadataText, #metadata-line > span, .YtmCompactMediaItemStats, time[datetime]');
     for (const node of nodes) {
       const exact = node.getAttribute('datetime');
       if (exact && /^\d{4}-\d{2}-\d{2}T/.test(exact)) {
@@ -95,10 +96,12 @@
   style.id = `${PREFIX}-style`;
   style.textContent = `
     .${PREFIX}-hidden { display: none !important; }
-    .${PREFIX}-active:not(.${PREFIX}-loading) ${CONTINUATION} { display: none !important; }
+    .${PREFIX}-active:not(.${PREFIX}-loading) :is(${CONTINUATION}) { display: none !important; }
     #${PREFIX}-panel { display: flex; align-items: center; align-self: center; flex: 1 1 0%; min-width: 0; height: 32px; margin-inline-start: 16px; margin-inline-end: calc(var(--ytd-rich-grid-item-margin, 16px) / 2); overflow-x: auto; scrollbar-width: none; color: var(--yt-spec-text-primary, var(--paper-checkbox-label-color, CanvasText)); font-family: Roboto, Arial, sans-serif; font-size: 14px; white-space: nowrap; }
     #${PREFIX}-panel::-webkit-scrollbar { display: none; }
     #${PREFIX}-panel .${PREFIX}-controls { display: flex; align-items: center; flex: 0 0 auto; gap: 8px; margin-inline-start: auto; }
+    #${PREFIX}-panel[data-mobile] { height: auto; min-height: 32px; margin: 8px 0; overflow: visible; }
+    #${PREFIX}-panel[data-mobile] .${PREFIX}-controls { flex: 1 1 auto; flex-wrap: wrap; margin-inline-start: 0; }
     #${PREFIX}-panel button { flex: 0 0 auto; }
     #${PREFIX}-panel button:disabled { cursor: default; }
     #${PREFIX}-panel button:disabled > span { opacity: .5; }
@@ -142,14 +145,19 @@
   }
 
   function chipBar(grid) {
-    const scope = grid.closest('ytd-browse') || grid;
+    const scope = grid.closest('ytd-browse, ytm-browse') || grid;
     return [...grid.querySelectorAll(CHIP_BAR), ...scope.querySelectorAll(CHIP_BAR)]
       .find(node => panelContainer(node) && !node.closest('[hidden]') && node.getClientRects().length) || null;
   }
 
   function placePanel(state, bar) {
-    const container = panelContainer(bar);
     state.bar = bar;
+    if (state.grid.matches('ytm-rich-grid-renderer')) {
+      state.panel.setAttribute('data-mobile', '');
+      if (bar.nextElementSibling !== state.panel) bar.after(state.panel);
+      return;
+    }
+    const container = panelContainer(bar);
     if (state.panel.parentElement !== container) container.append(state.panel);
   }
 
@@ -159,7 +167,7 @@
 
   function activeGrid() {
     if (navigationPending || !/^\/(?:@[^/]+|channel\/[^/]+|c\/[^/]+|user\/[^/]+)\/videos\/?$/.test(location.pathname)) return null;
-    return [...document.querySelectorAll('ytd-browse[page-subtype="channels"] ytd-rich-grid-renderer, ytd-browse[page-subtype="channels"] ytd-grid-renderer')]
+    return [...document.querySelectorAll('ytd-browse[page-subtype="channels"] ytd-rich-grid-renderer, ytd-browse[page-subtype="channels"] ytd-grid-renderer, ytm-browse ytm-rich-grid-renderer')]
       .find(node => !node.closest('[hidden]') && node.getClientRects().length) || null;
   }
 
