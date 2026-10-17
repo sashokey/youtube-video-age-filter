@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Video Age Filter
 // @namespace    local.youtube-video-age-filter
-// @version      1.1.2
+// @version      1.1.3
 // @description  Filter channel videos by upload age while keeping YouTube's native order and pagination.
 // @match        https://www.youtube.com/*
 // @run-at       document-idle
@@ -95,7 +95,7 @@
   style.textContent = `
     .${PREFIX}-hidden { display: none !important; }
     .${PREFIX}-active:not(.${PREFIX}-loading) ${CONTINUATION} { display: none !important; }
-    #${PREFIX}-panel { display: flex; align-items: center; align-self: center; flex: 1 1 0%; min-width: 0; height: 32px; margin-inline-start: 16px; overflow-x: auto; scrollbar-width: none; color: var(--yt-spec-text-primary, var(--paper-checkbox-label-color, CanvasText)); font-family: Roboto, Arial, sans-serif; font-size: 14px; white-space: nowrap; }
+    #${PREFIX}-panel { display: flex; align-items: center; align-self: center; flex: 1 1 0%; min-width: 0; height: 32px; margin-inline-start: 16px; margin-inline-end: calc(var(--ytd-rich-grid-item-margin, 16px) / 2); overflow-x: auto; scrollbar-width: none; color: var(--yt-spec-text-primary, var(--paper-checkbox-label-color, CanvasText)); font-family: Roboto, Arial, sans-serif; font-size: 14px; white-space: nowrap; }
     #${PREFIX}-panel::-webkit-scrollbar { display: none; }
     #${PREFIX}-panel .${PREFIX}-controls { display: flex; align-items: center; flex: 0 0 auto; gap: 8px; margin-inline-start: auto; }
     #${PREFIX}-panel button { flex: 0 0 auto; }
