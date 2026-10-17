@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Video Age Filter
 // @namespace    local.youtube-video-age-filter
-// @version      1.1.1
+// @version      1.1.2
 // @description  Filter channel videos by upload age while keeping YouTube's native order and pagination.
 // @match        https://www.youtube.com/*
 // @run-at       document-idle
@@ -95,16 +95,20 @@
   style.textContent = `
     .${PREFIX}-hidden { display: none !important; }
     .${PREFIX}-active:not(.${PREFIX}-loading) ${CONTINUATION} { display: none !important; }
-    .${PREFIX}-active ytd-rich-grid-row { display: contents !important; }
-    .${PREFIX}-active ytd-rich-grid-row > #contents { display: contents !important; }
-    ${ITEM.split(', ').map(selector => `.${PREFIX}-active ${selector}`).join(', ')} { margin-left: calc(var(--ytd-rich-grid-item-margin, 16px) / 2) !important; margin-right: calc(var(--ytd-rich-grid-item-margin, 16px) / 2) !important; }
-    .${PREFIX}-toolbar { display: flex !important; align-items: center; justify-content: flex-start !important; flex-wrap: nowrap !important; gap: 8px; max-width: 100%; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
-    .${PREFIX}-toolbar > chip-bar-view-model, .${PREFIX}-toolbar > yt-chip-cloud-renderer { flex: 0 0 auto; width: auto !important; min-width: 0; padding-block: 8px !important; }
-    #${PREFIX}-panel { display: flex; align-items: center; flex: 0 0 auto; flex-wrap: nowrap; gap: 8px; min-height: 48px; margin-inline-start: auto; color: var(--yt-spec-text-primary); font-family: Roboto, Arial, sans-serif; font-size: 14px; white-space: nowrap; }
+    #${PREFIX}-panel { display: flex; align-items: center; align-self: center; flex: 1 1 0%; min-width: 0; height: 32px; margin-inline-start: 16px; overflow-x: auto; scrollbar-width: none; color: var(--yt-spec-text-primary, var(--paper-checkbox-label-color, CanvasText)); font-family: Roboto, Arial, sans-serif; font-size: 14px; white-space: nowrap; }
+    #${PREFIX}-panel::-webkit-scrollbar { display: none; }
+    #${PREFIX}-panel .${PREFIX}-controls { display: flex; align-items: center; flex: 0 0 auto; gap: 8px; margin-inline-start: auto; }
     #${PREFIX}-panel button { flex: 0 0 auto; }
+    #${PREFIX}-panel button[role="switch"] { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; --transition-duration: var(--paper-toggle-button-transition-duration, .08s); }
+    #${PREFIX}-panel button[role="switch"] .toggle-container { flex: 0 0 auto; }
+    #${PREFIX}-panel button[role="switch"] .toggle-bar { inset: 0; }
+    #${PREFIX}-panel button[role="switch"][aria-checked="true"] .toggle-bar { background-color: var(--paper-toggle-button-checked-bar-color, var(--primary-color)); opacity: var(--paper-toggle-button-checked-bar-opacity, .5); }
+    #${PREFIX}-panel button[role="switch"][aria-checked="true"] .toggle-button { transform: translateX(16px); background-color: var(--paper-toggle-button-checked-button-color, var(--primary-color)); }
+    #${PREFIX}-panel button[role="switch"][aria-checked="true"]:dir(rtl) .toggle-button { transform: translateX(-16px); }
+    #${PREFIX}-panel button[role="switch"]:dir(rtl) .toggle-button { right: 0; left: auto; }
     #${PREFIX}-panel button:disabled { cursor: default; }
     #${PREFIX}-panel button:disabled > span, #${PREFIX}-panel input:disabled, #${PREFIX}-panel select:disabled { opacity: .5; }
-    #${PREFIX}-panel button:focus-visible { outline: 2px solid var(--yt-spec-text-primary); outline-offset: 2px; border-radius: 8px; }
+    #${PREFIX}-panel button:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; border-radius: 8px; }
     #${PREFIX}-panel button:not(:disabled):hover .ytSpecTouchFeedbackShapeFill { opacity: .1; }
     #${PREFIX}-panel input, #${PREFIX}-panel select { font: inherit; outline-offset: -2px; }
     #${PREFIX}-panel input { width: 68px; padding-inline: 8px; }
@@ -112,7 +116,6 @@
     #${PREFIX}-panel option { color: var(--yt-spec-text-primary, CanvasText); background: var(--yt-spec-base-background, Canvas); }
     html[dark] #${PREFIX}-panel input, html[dark] #${PREFIX}-panel select { color-scheme: dark; }
     #${PREFIX}-panel [hidden] { display: none !important; }
-    #${PREFIX}-panel .${PREFIX}-count { max-width: 170px; overflow: hidden; text-overflow: ellipsis; color: var(--yt-spec-text-secondary); font-size: 12px; }
     #${PREFIX}-panel .${PREFIX}-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   `;
   document.head.append(style);
@@ -134,25 +137,29 @@
     return button;
   }
 
-  function setPressed(button, pressed) {
-    button.setAttribute('aria-pressed', String(pressed));
-    button.firstElementChild.classList.toggle('ytChipShapeActive', pressed);
-    button.firstElementChild.classList.toggle('ytChipShapeInactive', !pressed);
+  function switchControl(text, parent, attrs = {}) {
+    const button = element('button', '', parent, { type: 'button', role: 'switch', ...attrs });
+    element('span', text, button);
+    const track = element('span', '', button, { class: 'toggle-container style-scope tp-yt-paper-toggle-button', 'aria-hidden': 'true' });
+    element('span', '', track, { class: 'toggle-bar style-scope tp-yt-paper-toggle-button' });
+    element('span', '', track, { class: 'toggle-button style-scope tp-yt-paper-toggle-button' });
+    return button;
+  }
+
+  function panelContainer(bar) {
+    return bar.matches('chip-bar-view-model') ? bar : bar.querySelector('#container');
   }
 
   function chipBar(grid) {
     const scope = grid.closest('ytd-browse') || grid;
     return [...grid.querySelectorAll(CHIP_BAR), ...scope.querySelectorAll(CHIP_BAR)]
-      .find(node => node.parentElement !== grid && !node.closest('[hidden]') && node.getClientRects().length) || null;
+      .find(node => panelContainer(node) && !node.closest('[hidden]') && node.getClientRects().length) || null;
   }
 
   function placePanel(state, bar) {
-    const row = bar.parentElement;
-    if (state.row !== row) state.row?.classList.remove(`${PREFIX}-toolbar`);
-    state.row = row;
+    const container = panelContainer(bar);
     state.bar = bar;
-    row.classList.add(`${PREFIX}-toolbar`);
-    if (bar.nextElementSibling !== state.panel) bar.after(state.panel);
+    if (state.panel.parentElement !== container) container.append(state.panel);
   }
 
   function save() {
@@ -183,27 +190,26 @@
     if (!current) return;
     current.grid.classList.remove(`${PREFIX}-active`, `${PREFIX}-loading`);
     current.grid.querySelectorAll(`.${PREFIX}-hidden`).forEach(node => node.classList.remove(`${PREFIX}-hidden`));
-    current.row.classList.remove(`${PREFIX}-toolbar`);
     current.panel.remove();
     current = null;
   }
 
   function mount(grid, bar) {
     const panel = element('div', '', null, { id: `${PREFIX}-panel`, role: 'group', 'aria-label': 'Video upload age filter' });
-    const enabled = chipButton('Upload age', panel, { 'aria-pressed': String(settings.enabled), title: 'Enable or disable the upload age filter' });
-    const amount = element('input', '', panel, { type: 'number', required: '', min: '1', max: '10000', step: '1', class: 'ytChipShapeChip ytChipShapeInactive', 'aria-label': 'Maximum video age', title: 'Within the last' });
+    const controls = element('div', '', panel, { class: `${PREFIX}-controls` });
+    const enabled = switchControl('Upload age', controls, { 'aria-checked': String(settings.enabled), title: 'Enable or disable the upload age filter' });
+    const amount = element('input', '', controls, { type: 'number', required: '', min: '1', max: '10000', step: '1', class: 'ytChipShapeChip ytChipShapeInactive', 'aria-label': 'Maximum video age', title: 'Within the last' });
     amount.value = String(settings.amount);
-    const unit = element('select', '', panel, { class: 'ytChipShapeChip ytChipShapeInactive', 'aria-label': 'Age unit' });
+    const unit = element('select', '', controls, { class: 'ytChipShapeChip ytChipShapeInactive', 'aria-label': 'Age unit' });
     for (const value of UNITS) element('option', value, unit, { value });
     unit.value = settings.unit;
-    const uncertain = chipButton('Uncertain dates', panel, { 'aria-label': 'Include uncertain dates', 'aria-pressed': String(settings.uncertain), title: 'Include missing dates and rounded upload ages that overlap the cutoff' });
-    const more = chipButton('Load more', panel, { 'aria-label': 'Load next page', title: 'Load one more page through normal YouTube scrolling' });
-    const find = chipButton('Find 20 more', panel, { title: 'Load until 20 more matching videos appear or 10 pages have loaded' });
-    const cancel = chipButton('Stop', panel, { title: 'Stop loading more videos' });
-    const count = element('span', '', panel, { class: `${PREFIX}-count`, tabindex: '0', 'aria-describedby': `${PREFIX}-status ${PREFIX}-progress` });
+    const uncertain = switchControl('Uncertain dates', controls, { 'aria-label': 'Include uncertain dates', 'aria-checked': String(settings.uncertain), title: 'Include missing dates and rounded upload ages that overlap the cutoff' });
+    const more = chipButton('Load more', controls, { 'aria-label': 'Load next page', title: 'Load one more page through normal YouTube scrolling', 'aria-describedby': `${PREFIX}-progress` });
+    const find = chipButton('Find 20 more', controls, { title: 'Load until 20 more matching videos appear or 10 pages have loaded', 'aria-describedby': `${PREFIX}-progress` });
+    const cancel = chipButton('Stop', controls, { title: 'Stop loading more videos' });
     const status = element('span', '', panel, { id: `${PREFIX}-status`, class: `${PREFIX}-sr-only`, role: 'status', 'aria-live': 'polite' });
     const progress = element('span', '', panel, { id: `${PREFIX}-progress`, class: `${PREFIX}-sr-only`, role: 'status', 'aria-live': 'polite' });
-    current = { grid, panel, amount, unit, uncertain, enabled, count, status, progress, more, find, cancel, running: false, message: '', stats: {}, restore: null, awaiting: null };
+    current = { grid, panel, amount, unit, uncertain, enabled, status, progress, more, find, cancel, running: false, message: '', stats: {}, restore: null, awaiting: null };
     placePanel(current, bar);
     const change = () => {
       if (!amount.checkValidity()) { amount.reportValidity(); return; }
@@ -277,13 +283,10 @@
     state.more.disabled = state.find.disabled = !settings.enabled || state.running || !continuation;
     state.cancel.disabled = !state.running;
     state.cancel.hidden = !state.running;
-    state.count.hidden = !settings.enabled;
-    const summary = settings.enabled ? `${stats.shown} / ${stats.loaded}${state.message ? ` · ${state.running ? 'Loading...' : state.message}` : ''}` : '';
-    if (state.count.textContent !== summary) state.count.textContent = summary;
-    state.count.title = `${label}\n${message}`;
-    state.count.setAttribute('aria-label', settings.enabled ? `${stats.shown} shown of ${stats.loaded} loaded` : 'Filter off');
-    setPressed(state.enabled, settings.enabled);
-    setPressed(state.uncertain, settings.uncertain);
+    state.more.title = state.message || 'Load one more page through normal YouTube scrolling';
+    state.find.title = state.message || 'Load until 20 more matching videos appear or 10 pages have loaded';
+    state.enabled.setAttribute('aria-checked', String(settings.enabled));
+    state.uncertain.setAttribute('aria-checked', String(settings.uncertain));
     state.panel.setAttribute('aria-busy', String(state.running));
     state.amount.disabled = state.unit.disabled = state.uncertain.disabled = !settings.enabled;
   }
