@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Video Age Filter
 // @namespace    local.youtube-video-age-filter
-// @version      1.0.2
+// @version      1.1.0
 // @description  Filter channel videos by upload age while keeping YouTube's native order and pagination.
 // @match        https://www.youtube.com/*
 // @run-at       document-idle
@@ -20,6 +20,7 @@
   const PREFIX = 'yt-age-filter';
   const ITEM = 'ytd-rich-item-renderer, ytd-grid-video-renderer';
   const CONTINUATION = 'ytd-continuation-item-renderer';
+  const CHIP_BAR = 'chip-bar-view-model, yt-chip-cloud-renderer';
   const UNITS = ['days', 'weeks', 'months', 'years'];
   const defaults = { enabled: true, amount: 12, unit: 'months', uncertain: false };
   let settings = { ...defaults };
@@ -96,9 +97,23 @@
     .${PREFIX}-active:not(.${PREFIX}-loading) ${CONTINUATION} { display: none !important; }
     .${PREFIX}-active ytd-rich-grid-row { display: contents !important; }
     .${PREFIX}-active ytd-rich-grid-row > #contents { display: contents !important; }
-    .${PREFIX}-active ${ITEM} { margin-left: calc(var(--ytd-rich-grid-item-margin, 16px) / 2) !important; margin-right: calc(var(--ytd-rich-grid-item-margin, 16px) / 2) !important; }
-    #${PREFIX}-panel, #${PREFIX}-footer { display: block; width: 100%; box-sizing: border-box; margin: 12px 0; }
-    #${PREFIX}-footer[hidden] { display: none !important; }
+    ${ITEM.split(', ').map(selector => `.${PREFIX}-active ${selector}`).join(', ')} { margin-left: calc(var(--ytd-rich-grid-item-margin, 16px) / 2) !important; margin-right: calc(var(--ytd-rich-grid-item-margin, 16px) / 2) !important; }
+    .${PREFIX}-toolbar { display: flex !important; align-items: center; flex-wrap: nowrap !important; gap: 8px; max-width: 100%; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+    .${PREFIX}-toolbar > chip-bar-view-model, .${PREFIX}-toolbar > yt-chip-cloud-renderer { flex: 0 0 auto; width: auto !important; min-width: 0; padding-block: 8px !important; }
+    #${PREFIX}-panel { display: flex; align-items: center; flex: 0 0 auto; flex-wrap: nowrap; gap: 8px; min-height: 48px; color: var(--yt-spec-text-primary); font-family: Roboto, Arial, sans-serif; font-size: 14px; white-space: nowrap; }
+    #${PREFIX}-panel button { flex: 0 0 auto; }
+    #${PREFIX}-panel button:disabled { cursor: default; }
+    #${PREFIX}-panel button:disabled > span, #${PREFIX}-panel input:disabled, #${PREFIX}-panel select:disabled { opacity: .5; }
+    #${PREFIX}-panel button:focus-visible { outline: 2px solid var(--yt-spec-text-primary); outline-offset: 2px; border-radius: 8px; }
+    #${PREFIX}-panel button:not(:disabled):hover .ytSpecTouchFeedbackShapeFill { opacity: .1; }
+    #${PREFIX}-panel input, #${PREFIX}-panel select { font: inherit; outline-offset: -2px; }
+    #${PREFIX}-panel input { width: 68px; padding-inline: 8px; }
+    #${PREFIX}-panel select { width: auto; padding-inline: 8px; cursor: pointer; }
+    #${PREFIX}-panel option { color: var(--yt-spec-text-primary, CanvasText); background: var(--yt-spec-base-background, Canvas); }
+    html[dark] #${PREFIX}-panel input, html[dark] #${PREFIX}-panel select { color-scheme: dark; }
+    #${PREFIX}-panel [hidden] { display: none !important; }
+    #${PREFIX}-panel .${PREFIX}-count { max-width: 170px; overflow: hidden; text-overflow: ellipsis; color: var(--yt-spec-text-secondary); font-size: 12px; }
+    #${PREFIX}-panel .${PREFIX}-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   `;
   document.head.append(style);
 
@@ -110,27 +125,34 @@
     return node;
   }
 
-  function shadowHost(id, parent) {
-    const host = element('div', '', parent, { id });
-    const shadow = host.attachShadow({ mode: 'open' });
-    element('style', `
-      :host { --af-text: #171717; --af-muted: #606060; --af-bg: #f5f5f5; --af-input: #fff; --af-border: #ccc; --af-hover: #e5e5e5; color: var(--af-text); font: 14px/1.5 Arial, sans-serif; }
-      :host-context([dark]) { --af-text: #f1f1f1; --af-muted: #aaa; --af-bg: #212121; --af-input: #121212; --af-border: #555; --af-hover: #333; color-scheme: dark; }
-      .box { background: var(--af-bg); border: 1px solid var(--af-border); border-radius: 12px; padding: 14px 16px; }
-      .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-      label { display: inline-flex; align-items: center; gap: 7px; }
-      input, select, button { color: inherit; font: inherit; border: 1px solid var(--af-border); background: var(--af-input); border-radius: 7px; padding: 6px 9px; }
-      input[type=number] { width: 76px; }
-      input[type=checkbox] { accent-color: #065fd4; width: 16px; height: 16px; }
-      button { cursor: pointer; }
-      button:hover { background: var(--af-hover); }
-      button:disabled { opacity: .5; cursor: default; }
-      .primary { background: #065fd4; color: #fff; border-color: #065fd4; }
-      .primary:hover { background: #004ab1; }
-      .note { margin: 8px 0 0; color: var(--af-muted); font-size: 12px; }
-      .status { margin: 8px 0 0; }
-    `, shadow);
-    return { host, shadow, box: element('div', '', shadow, { class: 'box' }) };
+  function chipButton(text, parent, attrs = {}) {
+    const button = element('button', '', parent, { type: 'button', class: 'ytChipShapeButtonReset', ...attrs });
+    const shape = element('span', '', button, { class: 'ytChipShapeChip ytChipShapeInactive ytChipShapeOnlyTextPadding' });
+    element('span', text, shape, { class: 'ytChipShapeText' });
+    const feedback = element('span', '', shape, { class: 'ytSpecTouchFeedbackShapeHost ytSpecTouchFeedbackShapeTouchResponse', 'aria-hidden': 'true' });
+    element('span', '', feedback, { class: 'ytSpecTouchFeedbackShapeFill' });
+    return button;
+  }
+
+  function setPressed(button, pressed) {
+    button.setAttribute('aria-pressed', String(pressed));
+    button.firstElementChild.classList.toggle('ytChipShapeActive', pressed);
+    button.firstElementChild.classList.toggle('ytChipShapeInactive', !pressed);
+  }
+
+  function chipBar(grid) {
+    const scope = grid.closest('ytd-browse') || grid;
+    return [...grid.querySelectorAll(CHIP_BAR), ...scope.querySelectorAll(CHIP_BAR)]
+      .find(node => node.parentElement !== grid && !node.closest('[hidden]') && node.getClientRects().length) || null;
+  }
+
+  function placePanel(state, bar) {
+    const row = bar.parentElement;
+    if (state.row !== row) state.row?.classList.remove(`${PREFIX}-toolbar`);
+    state.row = row;
+    state.bar = bar;
+    row.classList.add(`${PREFIX}-toolbar`);
+    if (bar.nextElementSibling !== state.panel) bar.after(state.panel);
   }
 
   function save() {
@@ -161,48 +183,49 @@
     if (!current) return;
     current.grid.classList.remove(`${PREFIX}-active`, `${PREFIX}-loading`);
     current.grid.querySelectorAll(`.${PREFIX}-hidden`).forEach(node => node.classList.remove(`${PREFIX}-hidden`));
-    current.panel.host.remove();
-    current.footer.host.remove();
+    current.row.classList.remove(`${PREFIX}-toolbar`);
+    current.panel.remove();
     current = null;
   }
 
-  function mount(grid) {
-    const panel = shadowHost(`${PREFIX}-panel`, null);
-    const footer = shadowHost(`${PREFIX}-footer`, null);
-    grid.before(panel.host);
-    grid.after(footer.host);
-    const row = element('div', '', panel.box, { class: 'row' });
-    const enabledLabel = element('label', '', row);
-    const enabled = element('input', '', enabledLabel, { type: 'checkbox' });
-    enabled.checked = settings.enabled;
-    element('strong', 'Upload age', enabledLabel);
-    const ageLabel = element('label', 'Within the last', row);
-    const amount = element('input', '', ageLabel, { type: 'number', min: '1', max: '10000', step: '1', 'aria-label': 'Maximum video age' });
+  function mount(grid, bar) {
+    const panel = element('div', '', null, { id: `${PREFIX}-panel`, role: 'group', 'aria-label': 'Video upload age filter' });
+    const enabled = chipButton('Upload age', panel, { 'aria-pressed': String(settings.enabled), title: 'Enable or disable the upload age filter' });
+    const amount = element('input', '', panel, { type: 'number', required: '', min: '1', max: '10000', step: '1', class: 'ytChipShapeChip ytChipShapeInactive', 'aria-label': 'Maximum video age', title: 'Within the last' });
     amount.value = String(settings.amount);
-    const unit = element('select', '', row, { 'aria-label': 'Age unit' });
+    const unit = element('select', '', panel, { class: 'ytChipShapeChip ytChipShapeInactive', 'aria-label': 'Age unit' });
     for (const value of UNITS) element('option', value, unit, { value });
     unit.value = settings.unit;
-    const uncertainLabel = element('label', '', row);
-    const uncertain = element('input', '', uncertainLabel, { type: 'checkbox' });
-    uncertain.checked = settings.uncertain;
-    element('span', 'Include uncertain dates', uncertainLabel);
-    element('p', 'Uses the age displayed by YouTube. Rounded ages that overlap the cutoff and missing dates are excluded unless enabled above. Select Popular on YouTube to keep its popularity order.', panel.box, { class: 'note' });
-    const status = element('p', '', panel.box, { class: 'status', role: 'status', 'aria-live': 'polite' });
-    const buttons = element('div', '', footer.box, { class: 'row' });
-    const more = element('button', 'Load next page', buttons, { type: 'button' });
-    const find = element('button', 'Find 20 more', buttons, { type: 'button', class: 'primary' });
-    const cancel = element('button', 'Stop', buttons, { type: 'button' });
-    const progress = element('span', '', buttons, { role: 'status', 'aria-live': 'polite' });
-    element('p', 'Loads through normal YouTube scrolling. Find 20 more stops after 20 matching videos or 10 pages. The page may scroll briefly while loading.', footer.box, { class: 'note' });
-    current = { grid, panel, footer, amount, unit, uncertain, enabled, status, progress, more, find, cancel, running: false, message: '', stats: {}, restore: null, awaiting: null };
+    const uncertain = chipButton('Uncertain dates', panel, { 'aria-label': 'Include uncertain dates', 'aria-pressed': String(settings.uncertain), title: 'Include missing dates and rounded upload ages that overlap the cutoff' });
+    const more = chipButton('Load more', panel, { 'aria-label': 'Load next page', title: 'Load one more page through normal YouTube scrolling' });
+    const find = chipButton('Find 20 more', panel, { title: 'Load until 20 more matching videos appear or 10 pages have loaded' });
+    const cancel = chipButton('Stop', panel, { title: 'Stop loading more videos' });
+    const count = element('span', '', panel, { class: `${PREFIX}-count`, tabindex: '0', 'aria-describedby': `${PREFIX}-status ${PREFIX}-progress` });
+    const status = element('span', '', panel, { id: `${PREFIX}-status`, class: `${PREFIX}-sr-only`, role: 'status', 'aria-live': 'polite' });
+    const progress = element('span', '', panel, { id: `${PREFIX}-progress`, class: `${PREFIX}-sr-only`, role: 'status', 'aria-live': 'polite' });
+    current = { grid, panel, amount, unit, uncertain, enabled, count, status, progress, more, find, cancel, running: false, message: '', stats: {}, restore: null, awaiting: null };
+    placePanel(current, bar);
     const change = () => {
       if (!amount.checkValidity()) { amount.reportValidity(); return; }
       stop();
-      settings = { enabled: enabled.checked, amount: Number(amount.value), unit: unit.value, uncertain: uncertain.checked };
+      settings = { ...settings, amount: Number(amount.value), unit: unit.value };
       save();
       refresh();
     };
-    for (const control of [enabled, amount, unit, uncertain]) control.addEventListener('change', change);
+    enabled.addEventListener('click', () => {
+      stop();
+      settings.enabled = !settings.enabled;
+      if (!settings.enabled) amount.value = String(settings.amount);
+      save();
+      refresh();
+    });
+    uncertain.addEventListener('click', () => {
+      stop();
+      settings.uncertain = !settings.uncertain;
+      save();
+      refresh();
+    });
+    for (const control of [amount, unit]) control.addEventListener('change', change);
     amount.addEventListener('input', () => { if (amount.checkValidity()) change(); });
     more.addEventListener('click', () => loadMore(1, Infinity));
     find.addEventListener('click', () => loadMore(10, 20));
@@ -216,9 +239,11 @@
   function refresh() {
     scheduled = 0;
     const grid = activeGrid();
-    if (current && (grid !== current.grid || !current.panel.host.isConnected)) unmount();
-    if (!grid) return;
-    if (!current) mount(grid);
+    const bar = grid && chipBar(grid);
+    if (current && (grid !== current.grid || !bar)) unmount();
+    if (!grid || !bar) return;
+    if (!current) mount(grid, bar);
+    else placePanel(current, bar);
     const state = current;
     grid.classList.toggle(`${PREFIX}-active`, settings.enabled);
     const list = cards(state);
@@ -241,17 +266,24 @@
     }
     state.stats = stats;
     const continuation = grid.querySelector(CONTINUATION);
-    const selected = grid.querySelector('[role="tab"][aria-selected="true"], yt-chip-cloud-chip-renderer[selected]');
+    const selected = bar.querySelector('[role="tab"][aria-selected="true"], yt-chip-cloud-chip-renderer[selected]');
     const order = selected?.textContent.trim() || 'YouTube order';
     const label = settings.enabled
       ? `${stats.shown} shown / ${stats.loaded} loaded · ${stats.old} too old · ${stats.boundary} at cutoff · ${stats.unknown} unknown · Order: ${order}`
       : `Filter off · ${stats.loaded} loaded · Native scrolling restored`;
     if (state.status.textContent !== label) state.status.textContent = label;
-    const message = state.message || (continuation ? 'More videos may match. Load more below.' : 'No further page is currently offered by YouTube.');
+    const message = state.message || (continuation ? 'More videos may match. Use Load more or Find 20 more.' : 'No further page is currently offered by YouTube.');
     if (state.progress.textContent !== message) state.progress.textContent = message;
     state.more.disabled = state.find.disabled = !settings.enabled || state.running || !continuation;
     state.cancel.disabled = !state.running;
-    state.footer.host.hidden = !settings.enabled;
+    state.cancel.hidden = !state.running;
+    const summary = settings.enabled ? `${stats.shown} / ${stats.loaded}${state.message ? ` · ${state.running ? 'Loading...' : state.message}` : ''}` : 'Off';
+    if (state.count.textContent !== summary) state.count.textContent = summary;
+    state.count.title = `${label}\n${message}`;
+    state.count.setAttribute('aria-label', settings.enabled ? `${stats.shown} shown of ${stats.loaded} loaded` : 'Filter off');
+    setPressed(state.enabled, settings.enabled);
+    setPressed(state.uncertain, settings.uncertain);
+    state.panel.setAttribute('aria-busy', String(state.running));
     state.amount.disabled = state.unit.disabled = state.uncertain.disabled = !settings.enabled;
   }
 
@@ -311,7 +343,7 @@
   }
 
   const observer = new MutationObserver(records => {
-    if (records.some(record => !record.target.closest?.(`#${PREFIX}-panel, #${PREFIX}-footer`))) schedule();
+    if (records.some(record => !(record.target.nodeType === Node.ELEMENT_NODE ? record.target : record.target.parentElement)?.closest(`#${PREFIX}-panel`))) schedule();
   });
   observer.observe(document.body, { childList: true, subtree: true, characterData: true });
   document.addEventListener('yt-navigate-start', () => { navigationPending = true; unmount(); });
@@ -319,7 +351,7 @@
   document.addEventListener('yt-page-data-updated', schedule);
   window.addEventListener('popstate', schedule);
   document.addEventListener('click', event => {
-    if (current && event.target.closest?.('ytd-rich-grid-renderer [role="tab"], yt-chip-cloud-chip-renderer')) { stop(); schedule(); }
+    if (current && current.bar.contains(event.target) && event.target.closest?.('[role="tab"], yt-chip-cloud-chip-renderer')) { stop(); schedule(); }
   }, true);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && current?.running) { stop('Paused because this tab is in the background.'); refresh(); }
